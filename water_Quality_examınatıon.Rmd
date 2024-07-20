@@ -1,0 +1,584 @@
+---
+title: "FINAL PROJECT:"
+author: "Mamady III DIAKITE 180709719 , Emircan UNAL 190709069 " 
+output: html_document
+date: "2023-01-16"
+---
+
+## 1. Please find your original dataset or datasets; and describe your data in the first
+
+Our DATASET IS about water Quality examınatıon of hemical and biological measurements related to water quality, It has 518 rows and 18 columns, including the concentrations of
+various elements and compounds, as well as the presence of bacteria and viruses.
+Each row represents a different sample with measured values for ammonia, arsenic, barium, cadmium,
+chloramine, chromium, copper, bacteria, viruses, lead, nitrates, mercury, perchlorate ,radium, selenium, silver uranium.
+The “is_safe” column indicates whether the water is deemed safe based on these measurements.
+The numbers are displayed in decimal format.
+
+
+## Loading necessary libraries
+```{r  message=FALSE}
+library(caret)
+library(RANN)
+library(randomForest)
+library(klaR)
+library(ggplot2)
+library(corrplot)
+library(pROC)
+library(ROSE)
+library(dplyr)
+library(NbClust)
+library(kernlab)
+library("factoextra")
+library(rpart)
+library(tidyr)
+
+```
+
+```{r}
+data_frame <- read.csv("waterQuality.csv")
+```
+
+
+##  2.Use “Exploratory data analysis”. Write down your comments.
+```{r}
+head(data_frame, 10)
+str(data_frame)
+# control for any null
+sum(is.na(data_frame))
+sapply(data_frame,function(x)sum(is.na(x)))
+data_frame$is_safe <- as.factor(data_frame$is_safe)
+str(data_frame)
+summary(data_frame)
+```
+
+### - Write down your comments:
+The data has been loaded using the read.csv function. and we display the first 10 rows, checked the structure provided some information about variables types.
+We also Obtained summary statistics for the dataset using summary(data_frame)..
+
+## 3. Use some “visualization techniques”  
+```{r}
+# Bar Chart - Contaminant Levels
+data_frame %>%
+  gather(key = "Contaminant", value = "Concentration", -is_safe) %>%
+  ggplot(aes(x = Contaminant, y = Concentration, fill = is_safe)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Contaminant Levels Across Samples",
+       x = "Contaminants",
+       y = "Concentration Levels") +
+  theme_minimal()
+
+# Box Plot - Contaminant Distribution
+data_frame %>%
+  gather(key = "Contaminant", value = "Concentration", -is_safe) %>%
+  ggplot(aes(x = Contaminant, y = Concentration, fill = is_safe)) +
+  geom_boxplot() +
+  labs(title = "Contaminant Distribution Across Samples",
+       x = "Contaminants",
+       y = "Concentration Levels") +
+  theme_minimal()
+
+# Heatmap - Contaminant Correlation
+correlation_matrix <- cor(data_frame[, -ncol(data_frame)])
+heatmap(correlation_matrix, 
+        col = colorRampPalette(c("blue", "white", "red"))(100), 
+        main = "Contaminant Correlation Matrix")
+
+# Histogram - Distribution of Safety Indicators
+data_frame %>%
+  gather(key = "Safety_Indicator", value = "Concentration", bacteria:uranium) %>%
+  ggplot(aes(x = Concentration, fill = Safety_Indicator)) +
+  geom_histogram(binwidth = 1, position = "stack", alpha = 0.7) +
+  facet_wrap(~Safety_Indicator, scales = "free") +
+  labs(title = "Distribution of Safety Indicators",
+       x = "Concentration Levels",
+       y = "Frequency") +
+  theme_minimal()
+
+# Line Chart - Trend Analysis (Choose a specific contaminant)
+selected_contaminant <- "ammonia"
+data_frame %>%
+  ggplot(aes(x = seq_along(1:nrow(data_frame)), y = get(selected_contaminant))) +
+  geom_line(color = "red") +  # Set the line color to red
+  labs(title = paste("Trend Analysis of", selected_contaminant),
+       x = "Samples",
+       y = "Concentration Levels") +
+  theme_minimal()
+```
+
+
+### Talk about your data further.
+
+ 1- The box plot provides a visual summary of the distribution of contaminant concentrations.
+ 
+ 2 -The scatter plot matrix provide relationships between pairs of variables.
+ 
+ 3- The heatmap visualizes the correlation matrix of contaminants.
+ 
+ 4- The histograms displays the distribution of concentration levels.
+ 
+ 5- The line chart shows the analysis for a specific contaminant (ammonia).
+
+
+## 4.Check data for multicollinearity, 
+  
+```{r}
+numeric_data <- data_frame[, sapply(data_frame, is.numeric)]
+scaled_data <- scale(numeric_data)
+correlation_matrix <- cor(scaled_data)
+corrplot(correlation_matrix, method = 'square', order = 'FPC', type = 'lower', diag = FALSE)
+```
+
+### Make your comments.
+
+First we Scaled data to have a mean of 0 and a standard deviation of 1.
+ for comparison or present scales. than
+ we  compute the correlation matrix to observe how each variable correlates with others.
+ A high correlation coefficient (close to 1 or -1) between two variables indicates multicollinearity,
+ meaning those variables are closely related and might be giving similar information.
+
+
+## 5. (7p) Apply PCA: 
+
+### a Use appropriate functions and arguments
+
+```{r}
+pca_result <- prcomp(scaled_data)
+summary(pca_result)
+```
+
+
+### b. Use visualization techniques for PCA, describe the result!
+```{r}
+screeplot(pca_result, type = "l", npcs = 12, main = "Screeplot of 17 PCs")
+abline(h = 1, col="blue", lty=5)
+legend("topright", legend=c("Eigenvalue = 1"),
+       col=c("red"), lty=1, cex=0.9)
+
+# Create a scree plot to visualize the variance explained by each PC
+fviz_eig(pca_result, ncp = 15, geom = "line", 
+         main = "Screeplot of 15 PCs",
+         hjust = 1,
+         ggtheme = theme_minimal()) 
+```
+
+
+### c. Make your final comments clearly!
+Based on the output of the summary. For example we can say that he first 3 principal components (PCs)
+contribute significantly to explaining the variance.The remaining PCs contribute less significantly
+Scatter plots of data points in the principal component space
+
+## 6. Apply Logistic Regression.
+```{r}
+New_Data <- data_frame[, -which(names(data_frame) ==  "viruses")]
+New_Data_numeric_Data <- New_Data[, sapply(New_Data, is.numeric)]
+New_numeric_scaled_data <- scale(New_Data_numeric_Data)
+New_correlation_matrix <- cor(New_numeric_scaled_data)
+corrplot(New_correlation_matrix, order = 'hclust', addrect = 7)
+
+# a. Use appropriate functions and arguments,
+set.seed(123)
+New_Data$is_safe <- factor(New_Data$is_safe,levels = c("no","yes"),labels = c(0,1))
+# Check for NA values after factor conversion
+missing_values <- sum(is.na(New_Data$is_safe))
+train_index <- createDataPartition(New_Data$is_safe, p = 0.8, list = FALSE)
+training_set <- New_Data[train_index, ]
+testing_set <- New_Data[-train_index, ]
+logistic_model <- glm(is_safe ~ . , family=binomial, training_set)
+summary(logistic_model)
+
+test_predictions <- predict(logistic_model, newdata = testing_set, type = "response")
+threshold <- 0.5
+predicted_classes <- ifelse(test_predictions > threshold, 1, 0)
+confusionMatrix(data = factor(predicted_classes), reference = testing_set$is_safe, positive = "1")
+accuracy_confusionMatrix <- confusionMatrix(data = factor(predicted_classes), reference = testing_set$is_safe, positive = "1")
+```
+
+### b. Use visualization techniques for Regression, describe the result!
+```{r}
+roc_curve <- roc(testing_set$is_safe, predicted_classes)
+plot(roc_curve, col = "red", main = " Logistic Regression ROC Curve", legacy.axes = TRUE)
+print(auc(roc_curve))
+```
+
+
+###  c.Which performance scores you chose? What is the final result? Make your final
+
+## Comments clearly!
+
+**Descrition**
+Specificity: with  0.8462 could be good if the cost of false positives is high, we may prioritize precision.
+where the positive instances may focus on sensitivity.
+What is the final result?
+Make your final  comments clearly!
+Here i think it sould be good to choose  Accuracy, which considers both true positives and true negatives negatives.
+
+
+## 7. Apply at least 2 Clustering Techniques
+
+### a. Describe the reason you choose those 2 techniques.
+ For the REASON that I choosed K-means is because of its computationally efficient and works well on large datasets.
+ Make the clusters to have similar variance, k-means is an appropriate choice.
+ For the Reason: that choosed is because Hierarchical clustering is more flexible regarding cluster shapes and sizes.
+ Specify Number of Clusters in Advance:
+ Both methods have their strengths, and the decision that why i choosed
+
+
+## 7.1 Algorithm Application
+
+### Apply k-means clustering with k=3
+
+### a. Use appropriate functions and arguments,
+
+
+```{r}
+kmean_clustering <- kmeans(New_numeric_scaled_data, centers = 3, nstart = 10)
+# Assign cluster labels to observations
+cluster_labels <- kmean_clustering$cluster
+```
+
+
+### b. Use visualization techniques. Describe the result!
+### Visualize the clustering result
+```{r}
+fviz_cluster(kmean_clustering, New_numeric_scaled_data, ellipse.type = "norm",geom = "point",pointsize = 0.5)
+fviz_nbclust(New_numeric_scaled_data, kmeans, method = "silhouette") +
+  labs(subtitle = "Silhouette method")
+fviz_nbclust(New_numeric_scaled_data, kmeans, method = "wss") +
+  geom_vline(xintercept = 3, linetype = 2) +
+  labs(subtitle = "Elbow method") 
+
+```
+  
+### c. Make your final comments clearly.
+
+ Here we distinct clusters of data points represented in different colors (blue, green, and red).
+ Each cluster is enclosed by a colored circle of the corresponding color. “Dim1 (8.4%)” and “Dim2 (8%)”,
+ indicating dimensions and their respective contributions to variance.A clusters numbered 1 to 3. Cluster 1 has blue ,
+ 2 has green, and 3 has red data points. The clusters overlap slightly with each other.
+
+## 7.2  Algorithm Application
+
+### a. Use appropriate functions and arguments
+
+### Apply hierarchical clustering using complete linkage
+```{r}
+hierarchical_clustering <- hclust(dist(New_numeric_scaled_data), method = "complete")
+```
+
+
+### b. Use visualization techniques. Describe the result!
+```{r}
+cut_dendrogram <- cutree(hierarchical_clustering, k = 5)
+# Visualize the clustering result
+plot(hierarchical_clustering, hang = -1, main = "Hierarchical Clustering Dendrogram")
+rect.hclust(hierarchical_clustering, k = 3, border = 3:6)
+print(cut_dendrogram)
+print(cluster_labels)
+```
+
+
+### c. Make your final comments clearly.
+A clusters produced by hierarchical clustering.From 0 to 8, indicating the distance or dissimilarity between
+ clusters. There are numerous vertical lines representing individual data points the formation of clusters
+ at different heights or levels of similarity/dissimilarity. A title at the top reads “Hierarchical Clustering Dendrogram.”
+ Colored horizontal lines (green and blue) intersecting the dendrogram at specific heights,
+ possibly indicating specific cluster cut-offs
+
+
+### b. Compare the results you have found in 7.1 and 7.2. Which performance scores you
+
+### chose? What is your final decision? Make your comments!
+
+ **Comparison:**
+ **Number of Clusters:** here we noticed that K-Means: has 3 clusters
+ where **Hierarchical:** has 5 clusters so we can say that  hierarchical clustering suggesting more granularity.
+ So prefer hierarchical clustering algorithms: it assigned different data points to similar clusters.
+ K-Means: Requires specifying the number of clusters (k).
+ **Hierarchical:** Does not require specifying the number of clusters in advance.
+
+## 8 Apply at least 2 Classification Techniques (other than logistic regresiion)
+
+### a. Describe the reason you choose those 2 techniques.
+
+After trying some Classification Techniques i see that those perform better on my data
+**Support Vector Machine (SVM) with Radial Kernel:** performs well in high-dimensional spaces, making it suitable for datasets with a large number of features.
+**Random Forest:** Random Forest can handle missing values without imputation.and provides a measure of variable importance.
+
+## 8.1  Algorithm Application
+### a.Use appropriate functions and arguments,
+```{r}
+suport_v_model <- train(is_safe ~ ., data = training_set, method = "svmRadial",
+                        trControl = trainControl(method = "cv", number = 5))
+test_predictions_svm <- predict(suport_v_model, newdata = testing_set)
+confusionMatrix(test_predictions_svm, testing_set$is_safe)
+```
+
+
+### b. Use visualization techniques. Describe the result!
+```{r}
+roc_curve_svm <- roc(testing_set$is_safe, as.numeric(test_predictions_svm))
+plot(roc_curve_svm, col = "blue", main = "suport_v_model ROC Curve", legacy.axes = TRUE)
+print(auc(roc_curve_svm))
+```
+
+
+### c. Make your final comments clearly.
+Suport_v_model ROC Curve” and shows the trade-off between sensitivity and specificity.
+The blue line represents the ROC curve, while the diagonal grey line represents random classification
+
+## 8.2 Algorithm Application
+
+### a. Use appropriate functions and arguments,
+```{r}
+random_forest_model <- train( is_safe ~ ., data = training_set, method = "rf", trControl = trainControl(method = "cv", number = 5))
+test_predictions_rf <- predict(random_forest_model, newdata = testing_set)
+# #Evaluate the Random Forest model
+confusionMatrix(test_predictions_rf, testing_set$is_safe)
+```
+
+
+### b. Use visualization techniques. Describe the result!
+
+ Visualize results (ROC curve)
+```{r}
+roc_curve_rf <- roc(testing_set$is_safe, as.numeric(test_predictions_rf))
+plot(roc_curve_rf, col = "red", main = "Random Forest ROC Curve", legacy.axes = TRUE)
+# Print the ROC curve
+print(auc(roc_curve_rf))
+```
+
+
+### c. Make your final comments clearly.
+
+here The Random Forest model shows us a reasonably good performance with balanced accuracy, indicating effectiveness in handling both classes.
+Sensitivity and specificity are crucial,
+
+
+## 8.b. Compare the results you have found in 8.1 and 8.2. Which performance scores you
+
+## chose? What is your final decision? Make your comments!
+ 
+ The SVM model outperforms the Random Forest model in terms of accuracy, sensitivity, and specificity.
+ The SVM model has a higher accuracy (77.67% vs. 75.73%) and sensitivity (80.77% vs. 67.31%).
+ The Random Forest model, on the other hand, has a slightly higher specificity (74.51% vs. 84.31%).
+ The SVM model should be  favored; in term of balanced performance is desired, 
+ Both models, SVM and Random Forest, have been evaluated using standard metrics.
+
+
+## X: (7p) Use the PCA results (principal components) you have found in “step 5” ; either for logistic regression or any other classification techniques
+```{r}
+num_components <- 3
+selected_components <- pca_result$x [, 1:num_components]
+data_frame_with_components <- cbind(New_Data, selected_components)
+
+set.seed(123)
+with_pca_train_indix <- createDataPartition(data_frame$is_safe, p = 0.7, list = FALSE)
+with_pca_train_data <- data_frame_with_components[with_pca_train_indix, ]
+with_pca_test_data <- data_frame_with_components[-with_pca_train_indix, ]
+logistic_model_with_components <- glm(is_safe ~ ., data = with_pca_train_data, family = "binomial")
+predictions_with_components <- predict(logistic_model_with_components, newdata = with_pca_test_data, type = "response")
+
+# Evaluate the model with principal components
+roc_curve_with_components <- roc(with_pca_test_data$is_safe, as.numeric(predictions_with_components))
+plot(roc_curve_with_components, col = "red", main = "ROC Curve for PCA-Logistic Regression", legacy.axes = TRUE)
+cat("AUC with principal components: ", auc(roc_curve_with_components))
+cat("AUC with original data: ", auc(roc_curve))
+```
+
+
+##  X ; Compare the “results with original data” and “results with components”, make your comments!
+ The AUC (Area Under the Curve) with principal components (0.8568) is higher than the AUC with the original data (0.7564).
+ This suggests that the model built using principal components has a better ability 
+
+### Y: Missing Data imputation:
+
+### a.Delete about 20%-40% of your data set randomly. Make them NA values, as if they are missing. Describe what you did there.
+ Set a random seed for reproducibility
+```{r}
+set.seed(123)
+str(data_frame)
+deleted<-data_frame 
+deleted$is_safe <- factor(deleted$is_safe,levels = c("no","yes"),labels = c(0,1))
+# Create a mask for missing values (20%-40% missing)
+missing_mask <- matrix(sample(c(TRUE, FALSE), size = ncol(deleted) * nrow(deleted), prob = c(0.2, 0.8), replace = TRUE),
+                       nrow = nrow(deleted))
+# Set missing values in the dataset
+deleted_data <- deleted
+deleted_data[missing_mask] <- NA
+
+```
+ 
+
+### Describe what you did there.
+
+ Here we first Randomly deleted 20 and 40 % of the original data by automatically creating a "NA " for some columns
+
+## Yb.Use an imputation method to impute those NA values.
+### missing
+
+```{r}
+train_index <- createDataPartition(deleted_data$is_safe, p = 0.8, list = FALSE)
+train_deleted <- deleted_data[train_index, ]
+test_deleted <- deleted_data[-train_index, ]
+deleted_logistic_model <- glm(is_safe ~ . , family=binomial, train_deleted)
+summary(deleted_logistic_model)
+```
+
+## Y c.Choose a classification or clustering algorithm
+### Confusion Matrix
+```{r}
+test_predictions_lm_deleted <- predict(deleted_logistic_model, newdata = test_deleted, type = "response")
+threshold <- 0.5
+deleted_predicted_classes <- ifelse(test_predictions_lm_deleted > threshold, 1, 0)
+confusionMatrix(data = factor(deleted_predicted_classes), reference = test_deleted$is_safe, positive = "1")
+deleted_accuracy <- confusionMatrix(data = factor(deleted_predicted_classes), reference = test_deleted$is_safe, positive = "1")
+```
+
+
+### Apply the classification or clustering algorithm to “data with missing values” and “data with imputed values”.
+
+### Impute missing values using k-Nearest Neighbors imputation
+```{r}
+imputed_data <- preProcess(deleted_data, method = "knnImpute")
+imputed_data <- predict(imputed_data, deleted_data)
+# we removed high correlated columns
+imputed_data <- imputed_data[, -which(names(imputed_data) == "ammonia")]
+#data splitting
+set.seed(123)
+train_index <- createDataPartition(imputed_data$is_safe, p = 0.8, list = FALSE)
+train_data_imputed <- imputed_data[train_index, ]
+test_data_imputed <- imputed_data[-train_index, ]
+imputed_logistic_model <- glm(is_safe ~ . , family=binomial, train_data_imputed)
+summary(imputed_logistic_model)
+# Confusion Matrix
+imputed_test_predictions_lm <- predict(imputed_logistic_model, newdata = test_data_imputed, type = "response")
+threshold <- 0.5
+imputed_predicted_classes <- ifelse(imputed_test_predictions_lm > threshold, 1, 0)
+confusionMatrix(data = factor(imputed_predicted_classes), reference = test_data_imputed$is_safe, positive = "1")
+imputed_Accuracy <- confusionMatrix(data = factor(imputed_predicted_classes), reference = test_data_imputed$is_safe, positive = "1")
+```
+
+
+### Compare the “results with missing values” and “result with imputed values”.
+```{r}
+cat("Without knn imputation accuracy ", deleted_accuracy$overall["Accuracy"])
+cat("With imputation accuracy", imputed_Accuracy$overall["Accuracy"])
+```
+
+
+The accuracy with KNN imputation (0.7529) is higher than without KNN imputation (0.4444). we say that KNN imputation seems to have contributed. I preferred.  the model with KNN imputation
+**Final Decision:**
+Based on the provided information, and considering accuracy as the primary metric, the model with KNN imputation has   better-performing model.
+
+## Z: (7p) Imbalanced data set
+
+### a.Make your data imbalanced, (in order to do it you should delete some part randomly). Describe what you did there.
+
+ Count the initial distribution
+```{r}
+initial_counts <- table(data_frame$is_safe)
+print("Initial Distribution:")
+print(initial_counts)
+# Set the seed for reproducibility
+set.seed(123)
+proportion_to_keep <- 0.7
+
+imbalanced_data <- data_frame %>%
+  group_by(is_safe) %>%
+  slice_sample(prop = proportion_to_keep) %>%
+  ungroup()
+# Count the imbalanced distribution
+imbalanced_counts <- table(imbalanced_data$is_safe)
+print("Imbalanced Distribution:")
+print(imbalanced_counts)
+# Count the initial distribution
+initial_counts <- table(data_frame$is_safe)
+print("Initial Distribution:")
+print(initial_counts)
+```
+
+
+### Describe what you did there.
+ I first Specify the proportion of "yes" instances to keep ( 70%),
+Create a subset of the data, keeping only a proportion of "yes" instances
+
+### b.Use oversampling, under sampling or both, to balance your data.
+```{r}
+# Count the initial distribution
+initial_counts <- table(imbalanced_data$is_safe)
+print("Initial Distribution:")
+print(initial_counts)
+
+set.seed(123)
+oversampled_data <- ROSE(is_safe ~ ., data = imbalanced_data, seed = 123)$data
+# Count the oversampled distribution
+oversampled_counts <- table(oversampled_data$is_safe)
+print("Oversampled Distribution:")
+print(oversampled_counts)
+```
+
+
+### C.Choose a classification algorithm (a new one or one of the techniques you used in 6-8).
+
+### Apply the classification algorithm to “imbalanced data” and “balanced data”
+```{r}
+set.seed(123)  
+train_index <- createDataPartition(imbalanced_data$is_safe, p = 0.8, list = FALSE)
+train_imbalanced_data <- imbalanced_data[train_index, ]
+test_imbalanced_data <- imbalanced_data[-train_index, ]
+table(train_imbalanced_data$is_safe)
+table(test_imbalanced_data$is_safe)
+imbalanced_logistic_model <- glm(is_safe ~ . , family=binomial, train_imbalanced_data)
+summary(imbalanced_logistic_model)
+
+```
+
+
+```{r}
+imbalanced_suport_v_model <- train(is_safe ~ ., data = train_imbalanced_data, method = "svmRadial",
+                        trControl = trainControl(method = "cv", number = 5))
+test_imbalanced_predictions_svm <- predict(imbalanced_suport_v_model, newdata = test_imbalanced_data)
+confusionMatrix(test_imbalanced_predictions_svm, test_imbalanced_data$is_safe)
+imbalanced_roc_curve_svm <- roc(test_imbalanced_data$is_safe, as.numeric(test_imbalanced_predictions_svm))
+plot(roc_curve_svm, col = "red", main = "suport_v_model ROC Curve", legacy.axes = TRUE)
+print(auc(imbalanced_roc_curve_svm))
+
+```
+
+
+### Apply the classification algorithm to “balanced data”
+```{r}
+set.seed(123) 
+train_index <- createDataPartition(oversampled_data$is_safe, p = 0.8, list = FALSE)
+train_balanced_data <- oversampled_data[train_index, ]
+test_balanced_data <- oversampled_data[-train_index, ]
+table(train_balanced_data$is_safe)
+table(test_balanced_data$is_safe)
+balanced_logistic_model <- glm(is_safe ~ . , family=binomial, train_balanced_data)
+summary(balanced_logistic_model)
+
+```
+
+```{r}
+balanced_suport_v_model <- train(is_safe ~ ., data = train_balanced_data, method = "svmRadial",
+                                   trControl = trainControl(method = "cv", number = 5))
+test_balanced_predictions_svm <- predict(balanced_suport_v_model, newdata = test_balanced_data)
+confusionMatrix(test_balanced_predictions_svm, test_balanced_data$is_safe)
+balanced_roc_curve_svm <- roc(test_balanced_data$is_safe, as.numeric(test_balanced_predictions_svm))
+plot(roc_curve_svm, col = "red", main = "suport_v_model ROC Curve", legacy.axes = TRUE)
+print(auc(balanced_roc_curve_svm))
+print(auc(imbalanced_roc_curve_svm))
+
+```
+ 
+The accuracy on imbalanced data (0.6806) is higher than the accuracy on balanced data (0.6232) . Balance in class representation is a priority, the model's performance on balanced data may be more relevant.
+
+**Final Decision:** Based on the information and focusing on accuracy,  we can say  that the the model performs better on   imbalanced data.
+
+ 
+ 
+ 
+ 
+ 
+ 
+
